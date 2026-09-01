@@ -1,0 +1,110 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/*v1/enterprise/analytics/search-events": {
+      "post": {
+        "operationId": "AnalyticsController_trackSearchEvent",
+        "summary": "Record a search analytics event",
+        "description": "Records the search term a user searched, keyed to the query_id returned by the corresponding search response, and publishes it to the search analytics stream for downstream measurement.\n\nTenant and user are resolved from the x-smtip-tid / x-smtip-uid request headers (or the Odin JWT when those are absent). Any tenant_id or user_id sent in the body is ignored.\n\nThe publish is fire-and-forget: a 200 confirms the request was accepted and validated, NOT that the event reached the stream. A broker outage still returns 200. Callers should not retry on success and should not depend on delivery.\n\nFields not listed in the schema are silently discarded, so sending a field the backend does not yet support returns 200 with that field dropped.",
+        "tags": [
+          "analytics"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordSearchAnalyticsEventRequestBody"
+              },
+              "examples": {
+                "search": {
+                  "summary": "Term submitted from search",
+                  "value": {
+                    "query_id": "019267f1-8c4a-7b2e-9f3d-1a2b3c4d5e6f",
+                    "search_term": "Leave Policy"
+                  }
+                },
+                "searchTokenReference": {
+                  "summary": "Non-Magnus environment, sha256 search token as query_id",
+                  "value": {
+                    "query_id": "a3f5c9e1b7d2408695ac1fe3d4b8027c5e9a1f6d3b8c2074e5a9d1c3f7b0e2a4",
+                    "search_term": "Q3 Benefits Enrollment"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event accepted and validated. Does not guarantee the event was published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchAnalyticsAcceptedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed: a field is missing, empty or whitespace-only, not a JSON string, or query_id exceeds 255 characters."
+          },
+          "401": {
+            "description": "Tenant or user identity could not be resolved from headers or the Odin JWT."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RecordSearchAnalyticsEventRequestBody": {
+        "type": "object",
+        "required": [
+          "query_id",
+          "search_term"
+        ],
+        "properties": {
+          "query_id": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Identifies the search this event belongs to, echoed back from the search response. Typically a uuid7 or a sha256 search token. Not format-validated, since /search accepts any string for its reference. Leading and trailing whitespace is trimmed; must be non-empty after trimming.",
+            "example": "019267f1-8c4a-7b2e-9f3d-1a2b3c4d5e6f"
+          },
+          "search_term": {
+            "type": "string",
+            "description": "The term as the user typed it. Stored verbatim: case, interior whitespace and punctuation are preserved, so send the raw term rather than a normalised one. Leading and trailing whitespace is trimmed and the result must be non-empty, which means the browse/filter-only search path (empty search term) cannot be recorded through this endpoint. No character limit is applied; the request is bounded by the service's request body size limit.",
+            "example": "Leave Policy"
+          }
+        }
+      },
+      "SearchAnalyticsAcceptedResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "status_code",
+          "correlation_id"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "status_code": {
+            "type": "number",
+            "example": 200
+          },
+          "correlation_id": {
+            "type": "string",
+            "description": "Echoes the x-smtip-cid request header when supplied, otherwise generated. Recorded on the published event, so it can be used to trace one event."
+          },
+          "data": {
+            "description": "Omitted. This endpoint returns no payload.",
+            "nullable": true,
+            "example": null
+          }
+        }
+      }
+    }
+  }
+}
